@@ -1,0 +1,193 @@
+# This project is used to detect the potential full adder
+# whose polarity of pin co and pin s can be inversed
+# The format of the netlist is showed as follow:
+#   FA1D0BWP30P140HVT intadd_65_U3 ( .A(intadd_65_B_5_), .B(intadd_63_SUM_3_),
+#         .CI(intadd_65_n3), .CO(intadd_65_n2), .S(intadd_65_SUM_5_) );
+
+import os
+
+import numpy as np
+import w_and_rm_netlist as wnet
+import parse_and_process_netlist as pp
+import w_and_rm_netlist as wrm
+import duplicate_process as dp
+
+def find_modules_connected_to_signals(netlist, input_signals, current_module_name):
+    signal_to_modules = []
+    temp = {}
+    for signal in input_signals:
+        modules_with_signal = []
+        count_input = 0
+        len_netlist = len(netlist)
+        for module in netlist:
+            module_info = next(iter(module.values()))
+            count_input += 1
+            for port_name, port_signal in module_info['ports'].items():
+                # print(module_info['module_name'])
+                if (signal == port_signal) and (not module_info['module_name'] == current_module_name):
+                    modules_with_signal.append(module_info['module_name'])
+                    modules_with_signal.append(port_name)
+        # if count_input == len_netlist:
+            # modules_with_signal.append('input')
+        signal_to_modules.append({signal: modules_with_signal})
+
+    return signal_to_modules
+
+def contains_only_co_s(input_list):
+    # Define a set of allowed values
+    allowed_values = {'CO', 'S'}
+
+    # Iterate through the list
+    for element in input_list:
+        if element not in allowed_values:
+            return False
+
+    # If all elements are 'CO' or 'S', return True
+    return True
+
+if __name__ == '__main__':
+    # parser
+    # module_name = 'e4_w16_fixed_adder_tree_1.5ns'
+    # module_name = 'e2_w8_fixed_adder_tree'
+    # module_name = 'e2_w4_fixed_adder_tree_1.5ns_all_auto'
+    # module_name = 'e2_w16_fixed_adder_tree_1.5ns_all_auto'
+    # module_name = 'e3_w4_fixed_adder_tree_1.5ns_all_auto'
+    # module_name = 'e3_w8_fixed_adder_tree_1.5ns_all_auto'
+    # module_name = 'e3_w16_fixed_adder_tree_1.5ns_all_auto'
+    # module_name = 'e4_w4_fixed_adder_tree_1.5ns_all_auto'
+    # module_name = 'e4_w8_fixed_adder_tree_1.5ns_all_auto'
+    # module_name = 'e5_w4_fixed_adder_tree_2ns_all_auto'
+    # module_name = 'e5_w8_fixed_adder_tree_2ns_all_auto'
+    # module_name = 'e5_w16_fixed_adder_tree_1.8ns_all_auto'
+    module_name = 'e6_w8_fixed_adder_tree_2ns_all_auto'
+    # module_name = 'e5_w8_fixed_adder_tree_pl_fad1'
+    # module_name = 'e5_w8_ripple_adder_tree'
+    # module_name = 'e5_w8_ripple_adder_tree_1.5ns_all_auto_invo.v'
+    file_name = ''.join([module_name, '.v'])
+    abs_path = '/home/evcong/PycharmProjects/FA_inverse_out/rtl'
+    file_path = os.path.join(abs_path, file_name)
+    # file_path = '/home/evcong/PycharmProjects/FA_inverse_out/e5_w16_fixed_adder_tree.v'
+    netlist = pp.parse_netlist(file_path)
+    print('print netlist as follows:')
+    for item in netlist:
+        print(item)
+
+    num_fa = len(netlist)
+    print('number of FA:', num_fa)
+    print("finish loading data")
+
+    # search potential full adder
+    input_signals = {'A', 'B', 'CI'}
+    output_signals = {'CO', 'S'}
+    connected_signals = set()
+    signal_to_modules = []
+    signal_to_modules_re = []
+    FA_replace = []
+    port_type = []
+    count = 0
+    # Extract all connected signals
+    for module in netlist:
+        count += 1
+        print("iteration count:", count)
+        module_info = next(iter(module.values()))
+        module_instance = module_info['module_name']
+        # module_info {'A': 'intadd_110_n1', 'B': 'intadd_93_A_6_', 'CI': 'intadd_93_n14', 'CO': 'intadd_93_n13',
+        # 'S': 'edge_nd_1030'}
+        ports = module_info['ports']
+        connected_signals.update(set(ports[key] for key in input_signals if key in ports))
+        # connected_signals {'intadd_110_n1', 'intadd_93_A_6_', 'intadd_93_n14'} the input signal name of the given
+        # module
+        signal_to_modules = find_modules_connected_to_signals(netlist, connected_signals, module_instance)
+        # [{'connected signal' : ['module', 'port name']}]
+        # [{'intadd_110_n1': ['intadd_110_U2', 'CO']},
+        # {'intadd_93_A_6_': ['intadd_105_U2', 'S']},
+        # {'intadd_93_n14': ['intadd_93_U15', 'CO']}]
+        # print(signal_to_modules)
+
+        for item2 in signal_to_modules:
+            tmp = next(iter(item2.values()))
+            tmp_key = next(iter(item2.keys()))
+            # if [{'intadd_106_CI': []}, {'sample_in[32]': []}, {'sample_in[0]': []}]
+            # write input to the port name
+            if tmp:
+                port_type.append(tmp[1])
+                signal_to_modules_re.append(item2)
+            else:
+                port_type.append('input')
+                signal_to_modules_re.append({tmp_key: ['input_port', 'input_wire']})
+        # ['CO', 'S', 'CO']
+        all_co = all(elem == 'CO' for elem in port_type)
+        all_s = all(elem == 'S' for elem in port_type)
+        co_s_only = contains_only_co_s(port_type)
+
+        # less_two_input = 'input' in port_type and port_type.count('input') <= 2
+        if all_co or all_s:
+        # if co_s_only:
+        # if all_co or all_s or less_two_input:
+            # FA_INVERSE all output
+            FA_replace.append([module_instance, count, port_type])
+            # find the former module name
+            form_tmp = [[value[0], value[1]] for item in signal_to_modules_re for value in item.values()]
+            input_tmp = [value for item in signal_to_modules_re for value in item.keys()]
+            # [{'intadd_112_n3': ['intadd_112_U4', 'CO']}, {'intadd_112_B_1_': ['U63', 'CO']}, {'sample_in[143]': ['input_port', 'input_wire']}]
+            for item in signal_to_modules_re:
+                tmp_items_val = np.ravel(list(item.values()))
+                tmp_items_key = np.ravel(list(item.keys()))
+                if tmp_items_val[0] == 'input_port':
+                    FA_replace.append([tmp_items_key[0], 'input'])
+                else:
+                    FA_replace.append(np.ravel(list(item.values())))
+        port_type = []
+        signal_to_modules_re = []
+        connected_signals.clear()
+
+    log_output_file = ''.join([module_name, '_tot_rpt', '.v'])
+    log_output_path = os.path.join(abs_path, log_output_file)
+    with open(log_output_path, "w") as file:
+        print("detailed information of these adders are showed as follow:", file=file)
+
+    for item3 in FA_replace:
+        print(item3)
+    # fa_file_path = './e5_w16_fixed_adder_tree_fa_re.v'
+    fa_rpt_nm = ''.join([module_name, '_fa_rpt', '.v'])
+    fa_rpt_path = os.path.join(abs_path, fa_rpt_nm)
+
+    # write the information of the target fa
+    dup_fa_list_twice, dup_fa_list_thrice = dp.find_duplicate_names(FA_replace)
+    with open(log_output_path, "a") as file:
+        print(len(dup_fa_list_twice), "FAs showed twice", file=file)
+        for item in dup_fa_list_twice:
+            print(item, file=file)
+        print(len(dup_fa_list_thrice), "FAs showed thrice", file=file)
+        for item in dup_fa_list_thrice:
+            print(item, file=file)
+    fa_rpt_nm_ref = ''.join([module_name, '_fa_rpt_ref', '.v'])
+    fa_rpt_path_ref = os.path.join(abs_path, fa_rpt_nm_ref)
+    wnet.write_verilog_netlist_to_file(FA_replace, fa_rpt_path_ref)
+
+    FA_replace = dp.merge_module_ports(FA_replace, dup_fa_list_thrice)
+    dup_fa_list, _ = dp.find_duplicate_names(FA_replace)
+    with open(log_output_path, "a") as file:
+        print(len(FA_replace), 'of', num_fa, 'FA can be replaced', file=file)
+        print(len(dup_fa_list), "FAs showed more than once", file=file)
+        for item in dup_fa_list:
+            print(item, file=file)
+    wnet.write_verilog_netlist_to_file(FA_replace, fa_rpt_path)
+
+    # create a new modified netlist
+    neo_file_name = ''.join([module_name, '_neo', '.v'])
+    neo_file_path = os.path.join(abs_path, neo_file_name)
+    # remove all inversed module
+    rm_fa_list, inv_num_rm, inv_all, inv_s, inv_co = wrm.replace_module_declarations(file_path, FA_replace)
+    # remove single inversed module
+    wnet.write_verilog_netlist_to_file(rm_fa_list, neo_file_path)
+    # missing defined name for input wire
+
+    with open(log_output_path, "a") as file:
+        print('total removed inverter:', inv_num_rm, 'of', num_fa*2, file=file)
+        print('total removed inverter_all:', inv_all, ' portion:', inv_all * 0.31 / num_fa, file=file)
+        print('total removed inverter_s:', inv_s, ' portion:', inv_s * 0.18 / num_fa, file=file)
+        print('total removed inverter_co:', inv_co, ' portion:', inv_co * 0.146 / num_fa, file=file)
+        print('total power reduction estimation:', (inv_co * 0.146 + inv_s * 0.18 + inv_all * 0.31) / num_fa, file=file)
+
+    print('finish')

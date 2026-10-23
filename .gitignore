@@ -4,3 +4,17 @@
 # Python
 __pycache__/
 *.pyc
+
+# 仅上传 4 个代表性 case 的全套产物（原始网表 / 重构网表 / 连接报告 / 统计报告）
+rtl/*
+!rtl/e2_w4_fixed_adder_tree_1.5ns_all_auto*
+!rtl/e3_w8_fixed_adder_tree_1.5ns_all_auto*
+!rtl/e5_w8_fixed_adder_tree_2ns_all_auto*
+!rtl/e5_w8_ripple_adder_tree.v
+!rtl/e5_w8_ripple_adder_tree_neo.v
+!rtl/e5_w8_ripple_adder_tree_fa_rpt.v
+!rtl/e5_w8_ripple_adder_tree_fa_rpt_ref.v
+!rtl/e5_w8_ripple_adder_tree_tot_rpt.v
+
+# 备份目录不上传
+rtl_bak/
